@@ -1,6 +1,9 @@
 const express = require("express");
 const app = express();
 const simpsons = require("./simpsons.json");
+simpsons.forEach((item, index) => {
+  item.id = index + 1;
+});
 
 app.get("/quotes", (req, res) => {
   let { character, count } = req.query;
