@@ -4,6 +4,7 @@ const { userSchema } = require("../validation/joi");
 const { genToken } = require("../utils");
 const sha256 = require("sha256");
 const asyncMySQL = require("../mysql/connection");
+const { addUser } = require("../mysql/queries");
 
 function checkToken(req, res, next) {
   const { token } = req.headers;
@@ -40,12 +41,8 @@ router.post("/", async (req, res) => {
 
   req.body.password = sha256(process.env.SALT + req.body.password);
 
-  const query = `INSERT INTO users (email, password)
-                   VALUES
-                    ("${req.body.email}", "${req.body.password}");`;
-
   try {
-    await asyncMySQL(query);
+    await asyncMySQL(addUser(req.body.email, req.body.password));
   } catch (e) {
     if (e.code === "ER_DUP_ENTRY") {
       res.send({ status: 0, error: "Exiting user" });
