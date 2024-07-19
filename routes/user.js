@@ -4,26 +4,33 @@ const { userSchema } = require("../validation/joi");
 const { genToken } = require("../utils");
 const sha256 = require("sha256");
 const asyncMySQL = require("../mysql/connection");
-const { addUser } = require("../mysql/queries");
+const {
+  addUser,
+  getId,
+  getIdFromToken,
+  setSecret,
+} = require("../mysql/queries");
 
-function checkToken(req, res, next) {
+async function checkToken(req, res, next) {
   const { token } = req.headers;
   if (!token) {
     res.status(400).send({ status: 0, reason: "No token" });
     return;
   }
 
-  const user = req.users.find((user) => {
-    return user.tokens.includes(token);
-  });
+  try {
+    const results = await asyncMySQL(getIdFromToken(req.headers.token));
 
-  if (!user) {
-    res.status(400).send({ status: 0, reason: "Invalid token" });
-    return;
+    if (!results) {
+      throw new Error("Token not found");
+    }
+
+    req.authedUserId = results[0].user_id;
+
+    next();
+  } catch (e) {
+    res.status(400).send({ status: 0, reason: "Bad token" });
   }
-
-  req.authedUser = user;
-  next();
 }
 
 router.get("/ALL", (req, res) => {
@@ -56,34 +63,27 @@ router.post("/", async (req, res) => {
   res.send({ status: 1 });
 });
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const candidatePassword = sha256(process.env.SALT + req.body.password);
 
-  //check the creds match what was originally entered
-  const user = req.users.find((user) => {
-    return (
-      user.email.toLowerCase() === req.body.email.toLowerCase() &&
-      user.password === candidatePassword
-    );
-  });
+  try {
+    const results = await asyncMySQL(getId(req.body.email, candidatePassword));
 
-  if (!user) {
+    if (!results) {
+      throw new Error("No results");
+    }
+
+    const token = genToken();
+    await asyncMySQL(addToken(results[0].id, token));
+    res.send({ status: 1, token });
+  } catch (e) {
     res.status(400).send({ status: 0, reason: "Invalid email/password combo" });
-    return;
   }
-
-  //generate a shared secret
-  const token = genToken();
-
-  //store the shared secret locally
-  user.tokens = user.tokens ? [...user.tokens, token] : [token];
-
-  //send the shared secret to the user
-  res.send({ status: 1, token });
 });
 
-router.patch("/", checkToken, (req, res) => {
-  req.authedUser.secret = req.body.secret;
+router.patch("/", checkToken, async (req, res) => {
+  await asyncMySQL(setSecret(req.authedUserId, req.body.secret));
+
   res.send({ status: 1 });
 });
 
