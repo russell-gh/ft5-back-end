@@ -3,6 +3,7 @@ const router = express.Router();
 const { userSchema } = require("../validation/joi");
 const { genToken } = require("../utils");
 const sha256 = require("sha256");
+const asyncMySQL = require("../mysql/connection");
 
 function checkToken(req, res, next) {
   const { token } = req.headers;
@@ -29,7 +30,7 @@ router.get("/ALL", (req, res) => {
 });
 
 //register
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const valResult = userSchema.validate(req.body);
 
   if (valResult.error) {
@@ -37,18 +38,24 @@ router.post("/", (req, res) => {
     return;
   }
 
-  const indexOf = req.users.findIndex((user) => {
-    return user.email.toLowerCase() === req.body.email.toLowerCase();
-  });
+  req.body.password = sha256(process.env.SALT + req.body.password);
 
-  if (indexOf >= 0) {
-    res.status(400).send({ status: 0, reason: "Existing user" });
+  const query = `INSERT INTO users (email, password)
+                   VALUES
+                    ("${req.body.email}", "${req.body.password}");`;
+
+  try {
+    await asyncMySQL(query);
+  } catch (e) {
+    if (e.code === "ER_DUP_ENTRY") {
+      res.send({ status: 0, error: "Exiting user" });
+    } else {
+      res.send({ status: 0, error: "Unknown error" });
+    }
+
     return;
   }
 
-  req.body.password = sha256(process.env.SALT + req.body.password);
-
-  req.users.push(req.body);
   res.send({ status: 1 });
 });
 
